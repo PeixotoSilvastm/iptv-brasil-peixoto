@@ -16,78 +16,46 @@ jobs:
 
       - name: Baixa playlists
         run: |
-          curl -sL https://iptv-org.github.io/iptv/countries/br.m3u -o br.m3u
-          curl -sL https://iptv-org.github.io/iptv/categories/news.m3u -o news.m3u
+          curl -sL https://iptv-org.github.io/iptv/categories/news.m3u   -o news.m3u
           curl -sL https://iptv-org.github.io/iptv/categories/sports.m3u -o sports.m3u
+          curl -sL https://iptv-org.github.io/iptv/countries/br.m3u      -o br.m3u
 
-      - name: Filtra e monta playlist
+      - name: Filtra so canais brasileiros e monta playlist
         run: |
-          # Filtra so canais que tem tvg-country="BR" na linha da URL
+          # Filtra so linhas que tem tvg-country="BR"
           python3 -c "
-          import re
+          with open('news.m3u') as f:
+              news = f.readlines()
+          with open('sports.m3u') as f:
+              sports = f.readlines()
+          with open('br.m3u') as f:
+              br = f.readlines()
 
-          def filter_br(filename):
-              with open(filename) as f:
-                  lines = f.readlines()
-              result = []
+          def filtrar(lines):
+              out = []
               i = 0
               while i < len(lines):
-                  line = lines[i]
-                  if line.startswith('#EXTINF'):
-                      result.append(line)
-                      if i+1 < len(lines) and lines[i+1].startswith('#'):
-                          result.append(lines[i+1])
-                          i += 2
-                      elif i+1 < len(lines) and 'tvg-country=\"BR\"' in lines[i]:
-                          result.append(lines[i+1] if i+1 < len(lines) else '')
-                          i += 2
-                      else:
-                          # tenta proxima linha como URL
-                          if i+1 < len(lines):
-                              result.append(lines[i+1])
-                          i += 2
+                  if lines[i].startswith('#EXTINF'):
+                      has_br = 'tvg-country=\"BR\"' in lines[i]
+                      out.append(lines[i])
+                      if i+1 < len(lines) and not lines[i+1].startswith('#'):
+                          if has_br:
+                              out.append(lines[i+1])
+                          elif '.br' in lines[i+1]:
+                              out.append(lines[i+1])
+                      i += 2
                   else:
                       i += 1
-              return result
+              return out
 
-          def filter_br_by_url(filename):
-              with open(filename) as f:
-                  lines = f.readlines()
-              result = []
-              i = 0
-              while i < len(lines):
-                  line = lines[i]
-                  if line.startswith('#EXTINF'):
-                      result.append(line)
-                      if i+1 < len(lines):
-                          url = lines[i+1].strip()
-                          # so aceita se contiver .br ou for https e tiver tvg-country BR
-                          has_br = 'tvg-country=\"BR\"' in line
-                          is_br_domain = '.br' in url or 'iptv-org.github.io' in url or 'raw.githubusercontent.com' in url
-                          if has_br or is_br_domain:
-                              result.append(url)
-                          i += 2
-                          continue
-                  i += 1
-              return result
-
-          # Noticias - filtro por tvg-country BR
-          news_lines = filter_br_by_url('news.m3u')
-          sports_lines = filter_br_by_url('sports.m3u')
-          br_lines = filter_br_by_url('br.m3u')
-
-          with open('playlist-final.m3u8', 'w') as out:
-              out.write('#EXTM3U\n')
-              out.write('# Lista IPTV Brasil - PeixotoSilvastm\n\n')
-              out.write('# ===== NOTICIAS =====\n')
-              for l in news_lines:
-                  out.write(l)
-              out.write('\n# ===== ESPORTES =====\n')
-              for l in sports_lines:
-                  out.write(l)
-              out.write('\n# ===== TV ABERTA / BRASIL =====\n')
-              for l in br_lines:
-                  out.write(l)
+          with open('playlist-final.m3u8', 'w') as f:
+              f.write('#EXTM3U\n# Lista IPTV Brasil - PeixotoSilvastm\n\n')
+              f.write('# ===== NOTICIAS =====\n')
+              for l in filtrar(news): f.write(l)
+              f.write('\n# ===== ESPORTES =====\n')
+              for l in filtrar(sports): f.write(l)
+              f.write('\n# ===== TV ABERTA =====\n')
+              for l in filtrar(br): f.write(l)
           "
           wc -l playlist-final.m3u8
 
