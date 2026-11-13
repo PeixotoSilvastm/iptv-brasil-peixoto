@@ -14,55 +14,68 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Baixa playlists
+      - name: Baixa a playlist do Brasil
+        run: curl -fsSL https://iptv-org.github.io/iptv/countries/br.m3u -o br.m3u
+
+      - name: Filtra, remove duplicados e monta a playlist
         run: |
-          curl -sL https://iptv-org.github.io/iptv/categories/news.m3u   -o news.m3u
-          curl -sL https://iptv-org.github.io/iptv/categories/sports.m3u -o sports.m3u
-          curl -sL https://iptv-org.github.io/iptv/countries/br.m3u      -o br.m3u
+          python3 - <<'PY'
+          import re
 
-      - name: Filtra so canais brasileiros e monta playlist
-        run: |
-          # Filtra so linhas que tem tvg-country="BR"
-          python3 -c "
-          with open('news.m3u') as f:
-              news = f.readlines()
-          with open('sports.m3u') as f:
-              sports = f.readlines()
-          with open('br.m3u') as f:
-              br = f.readlines()
+          GRUPOS = {"News": "Noticias", "Sports": "Esportes", "General": "Variedades",
+                    "Entertainment": "Entretenimento", "Movies": "Filmes", "Series": "Series",
+                    "Kids": "Infantil", "Religious": "Religiosos", "Education": "Educacao",
+                    "Music": "Musica", "Documentary": "Documentarios", "Legislative": "Camaras",
+                    "Culture": "Cultura", "Animation": "Animacao", "Comedy": "Comedia",
+                    "Public": "Publicos", "Business": "Negocios", "Classic": "Classicos",
+                    "Undefined": "Outros"}
 
-          def filtrar(lines):
-              out = []
-              i = 0
-              while i < len(lines):
-                  if lines[i].startswith('#EXTINF'):
-                      has_br = 'tvg-country=\"BR\"' in lines[i]
-                      out.append(lines[i])
-                      if i+1 < len(lines) and not lines[i+1].startswith('#'):
-                          if has_br:
-                              out.append(lines[i+1])
-                          elif '.br' in lines[i+1]:
-                              out.append(lines[i+1])
-                      i += 2
-                  else:
-                      i += 1
-              return out
+          linhas = open("br.m3u", encoding="utf-8", errors="replace").read().splitlines()
+          itens, i = [], 0
+          while i < len(linhas):
+              if linhas[i].startswith("#EXTINF"):
+                  extinf, opts, j = linhas[i], [], i + 1
+                  while j < len(linhas) and linhas[j].startswith("#") and not linhas[j].startswith("#EXTINF"):
+                      opts.append(linhas[j]); j += 1
+                  if j < len(linhas) and linhas[j].strip() and not linhas[j].startswith("#"):
+                      itens.append((extinf, opts, linhas[j].strip())); j += 1
+                  i = j
+              else:
+                  i += 1
 
-          with open('playlist-final.m3u8', 'w') as f:
-              f.write('#EXTM3U\n# Lista IPTV Brasil - PeixotoSilvastm\n\n')
-              f.write('# ===== NOTICIAS =====\n')
-              for l in filtrar(news): f.write(l)
-              f.write('\n# ===== ESPORTES =====\n')
-              for l in filtrar(sports): f.write(l)
-              f.write('\n# ===== TV ABERTA =====\n')
-              for l in filtrar(br): f.write(l)
-          "
-          wc -l playlist-final.m3u8
+          def eh_br(extinf):
+              m = re.search(r'tvg-id="[^"]*\.([a-z]{2,3})(?:@[^"]*)?"', extinf)
+              return bool(m) and m.group(1) == "br"
+
+          def grupo_pt(extinf):
+              return re.sub(r'group-title="([^"]*)"',
+                            lambda m: 'group-title="%s"' % GRUPOS.get(m.group(1).split(";")[0], m.group(1).split(";")[0]),
+                            extinf)
+
+          vistos, final = set(), []
+          for extinf, opts, url in itens:
+              if eh_br(extinf) and url not in vistos:
+                  vistos.add(url)
+                  final.append((grupo_pt(extinf), opts, url))
+
+          def chave(it):
+              g = re.search(r'group-title="([^"]*)"', it[0])
+              return ((g.group(1) if g else "").lower(), it[0].rsplit(",", 1)[-1].lower())
+          final.sort(key=chave)
+
+          saida = ["#EXTM3U", "# Lista IPTV Brasil - PeixotoSilvastm"]
+          for extinf, opts, url in final:
+              saida += [extinf] + opts + [url]
+          texto = "\n".join(saida) + "\n"
+          for nome in ("playlist-final.m3u8", "brasil.m3u"):
+              open(nome, "w", encoding="utf-8").write(texto)
+          print(len(final), "canais")
+          PY
 
       - name: Commit e push
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add playlist-final.m3u8
+          git add playlist-final.m3u8 brasil.m3u
           git diff --staged --quiet || git commit -m "chore: atualiza playlist"
           git push
