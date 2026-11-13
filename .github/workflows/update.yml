@@ -16,24 +16,27 @@ jobs:
 
       - name: Baixa playlists iptv-org
         run: |
-          curl -sL https://iptv-org.github.io/iptv/countries/br.m3u -o br.m3u
-          curl -sL https://iptv-org.github.io/iptv/categories/news.m3u -o news.m3u
+          curl -sL https://iptv-org.github.io/iptv/countries/br.m3u     -o br.m3u
+          curl -sL https://iptv-org.github.io/iptv/categories/news.m3u   -o news.m3u
           curl -sL https://iptv-org.github.io/iptv/categories/sports.m3u -o sports.m3u
+          echo "Baixados:"
+          wc -l br.m3u news.m3u sports.m3u
 
       - name: Monta playlist final
         run: |
-          echo "#EXTM3U" > playlist-final.m3u8
-          echo "# Lista IPTV Brasil — PeixotoSilvastm" >> playlist-final.m3u8
-          echo "" >> playlist-final.m3u8
-          echo "# ===== NOTICIAS =====" >> playlist-final.m3u8
-          grep -i "group-title=\"noticias\"" news.m3u -A1 >> playlist-final.m3u8
-          echo "" >> playlist-final.m3u8
-          echo "# ===== TV ABERTA =====" >> playlist-final.m3u8
-          grep -i "group-title=\"aberta\|entertainment\|general\"" br.m3u -A1 >> playlist-final.m3u8
-          echo "" >> playlist-final.m3u8
-          echo "# ===== ESPORTES =====" >> playlist-final.m3u8
-          grep -i "group-title=\"esportes\|sports\"" sports.m3u -A1 >> playlist-final.m3u8
-          echo "" >> playlist-final.m3u8
+          {
+            echo "#EXTM3U"
+            echo "# Lista IPTV Brasil - PeixotoSilvastm"
+            echo ""
+            echo "# ===== NOTICIAS ====="
+            tail -n +2 news.m3u
+            echo ""
+            echo "# ===== ESPORTES ====="
+            tail -n +2 sports.m3u
+            echo ""
+            echo "# ===== TV ABERTA / DEMAIS (BRASIL) ====="
+            tail -n +2 br.m3u
+          } > playlist-final.m3u8
           wc -l playlist-final.m3u8
 
       - name: Commit e push
