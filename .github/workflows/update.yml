@@ -20,56 +20,147 @@ jobs:
       - name: Filtra, remove duplicados e monta a playlist
         run: |
           python3 - <<'PY'
-          import re
+          import re, unicodedata
+          from collections import Counter
 
-          GRUPOS = {"News": "Noticias", "Sports": "Esportes", "General": "Variedades",
-                    "Entertainment": "Entretenimento", "Movies": "Filmes", "Series": "Series",
-                    "Kids": "Infantil", "Religious": "Religiosos", "Education": "Educacao",
-                    "Music": "Musica", "Documentary": "Documentarios", "Legislative": "Camaras",
-                    "Culture": "Cultura", "Animation": "Animacao", "Comedy": "Comedia",
-                    "Public": "Publicos", "Business": "Negocios", "Classic": "Classicos",
-                    "Undefined": "Outros"}
+          # ===== AJUSTES (mude aqui) =====
+          TIRAR_NOT_247   = True    # remove canais marcados [Not 24/7]
+          TIRAR_GEOBLOCK  = False   # remove canais marcados [Geo-blocked]
+          RESOLUCAO_MIN   = 360     # remove resolução menor. 0 = não filtra
+          BLOQUEAR        = ["tvmatic crafts", "tvmatic facebook", "tvmatic funny", "tvmatic tiktok",
+                             "petlovers", "tv+pet", "1001 noites", "tiktok radio", "gospel cartoon"]
 
-          linhas = open("br.m3u", encoding="utf-8", errors="replace").read().splitlines()
-          itens, i = [], 0
-          while i < len(linhas):
-              if linhas[i].startswith("#EXTINF"):
-                  extinf, opts, j = linhas[i], [], i + 1
-                  while j < len(linhas) and linhas[j].startswith("#") and not linhas[j].startswith("#EXTINF"):
-                      opts.append(linhas[j]); j += 1
-                  if j < len(linhas) and linhas[j].strip() and not linhas[j].startswith("#"):
-                      itens.append((extinf, opts, linhas[j].strip())); j += 1
-                  i = j
-              else:
-                  i += 1
+          # Nos grupos abaixo (onde ficam os canais abertos/locais), só entra:
+          #  - rede nacional (lista NACIONAIS) ou
+          #  - canal local permitido (lista LOCAIS_OK)
+          GRUPOS_RESTRITOS = ["TV Aberta", "Outros", "Entretenimento"]
+          NACIONAIS = ["rede globo", "globoplay", "band (", "record (", "sbt nacional", "redetv",
+                       "rede tv", "rede brasil", "tv brasil (", "canal uol", "amazon sat", "tv senado",
+                       "tv justica", "canal gov", "boas novas", "rede familia", "cancao nova",
+                       "sesc tv", "sony", "comedy central", "canal do boi", "tv ra tim bum", "canal libras"]
+          LOCAIS_OK = ["liberal", "tapajos",                               # Pará
+                       "recordtv rio", "rede cnt rio de janeiro",          # Rio (capital)
+                       "tv globo sao paulo", "recordtv sao paulo",         # São Paulo (capital)
+                       "tv cultura", "tv gazeta"]
+
+          # Canais manuais (não existem no iptv-org). Cole o link .m3u8 entre as aspas.
+          # Os que ficarem com link vazio ("") são ignorados.
+          EXTRAS = [("TV Liberal (Belem)", ""),
+                    ("TV Tapajos (Santarem)", "")]
+
+          # Locais de outros estados (valem para qualquer grupo): o canal sai se o nome tiver a palavra
+          LOCAIS_FORA = ["cuiaba", "mutum", "rondonopolis", "pantanal", "goias", "ufg", "brasilia",
+                         "bahia", "salvador", "itapoan", "metropole", "ceara", "piaui", "padre cicero",
+                         "meio norte", "arapuan", "natal", "litoral rn", "maceio", "tvcom", "macapa",
+                         "curitiba", "parana", "brusque", "catarinense", "unisul", "porto alegre",
+                         "passo fundo", "vicosa", "ufop", "sul de minas", "rede minas",
+                         "cachoeiro", "sao mateus", "guarapari", "a critica", "encontro das aguas",
+                         "santa cecilia"]
+          LOCAIS_FORA_PALAVRA = ["rs"]   # só como palavra inteira
+
+          ORDEM = ["Noticias", "Esportes", "TV Aberta", "Filmes", "Series", "Infantil",
+                   "Documentarios", "Entretenimento", "Musica", "Cultura", "Educacao",
+                   "Camaras", "Religiosos"]
+          PRIORIDADE = ["News", "Sports", "Movies", "Series", "Kids", "Documentary", "General",
+                        "Entertainment", "Music", "Culture", "Education", "Legislative", "Religious"]
+          NOMES = {"News": "Noticias", "Sports": "Esportes", "General": "TV Aberta",
+                   "Entertainment": "Entretenimento", "Movies": "Filmes", "Series": "Series",
+                   "Kids": "Infantil", "Religious": "Religiosos", "Education": "Educacao",
+                   "Music": "Musica", "Documentary": "Documentarios", "Legislative": "Camaras",
+                   "Culture": "Cultura", "Animation": "Infantil", "Comedy": "Entretenimento",
+                   "Public": "TV Aberta", "Business": "Noticias", "Classic": "Entretenimento",
+                   "Undefined": "Outros"}
+          # ================================
+
+          def sem_acento(t):
+              return unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode().lower()
+
+          def parse(texto):
+              linhas, itens, i = texto.splitlines(), [], 0
+              while i < len(linhas):
+                  if linhas[i].startswith("#EXTINF"):
+                      extinf, opts, j = linhas[i], [], i + 1
+                      while j < len(linhas) and linhas[j].startswith("#") and not linhas[j].startswith("#EXTINF"):
+                          opts.append(linhas[j]); j += 1
+                      if j < len(linhas) and linhas[j].strip() and not linhas[j].startswith("#"):
+                          itens.append((extinf, opts, linhas[j].strip())); j += 1
+                      i = j
+                  else:
+                      i += 1
+              return itens
+
+          def nome_canal(extinf):
+              return extinf.rsplit(",", 1)[-1]
 
           def eh_br(extinf):
               m = re.search(r'tvg-id="[^"]*\.([a-z]{2,3})(?:@[^"]*)?"', extinf)
               return bool(m) and m.group(1) == "br"
 
-          def grupo_pt(extinf):
-              return re.sub(r'group-title="([^"]*)"',
-                            lambda m: 'group-title="%s"' % GRUPOS.get(m.group(1).split(";")[0], m.group(1).split(";")[0]),
-                            extinf)
+          def passa(extinf):
+              n = nome_canal(extinf); nn = sem_acento(n)
+              if any(k in nn for k in LOCAIS_OK): return True
+              if any(k in nn for k in LOCAIS_FORA): return False
+              if any(re.search(r"\b%s\b" % w, nn) for w in LOCAIS_FORA_PALAVRA): return False
+              if TIRAR_NOT_247 and "[Not 24/7]" in n: return False
+              if TIRAR_GEOBLOCK and "[Geo-blocked]" in n: return False
+              if RESOLUCAO_MIN:
+                  r = re.search(r'\((\d{3,4})[pi]\)', n)
+                  if r and int(r.group(1)) < RESOLUCAO_MIN: return False
+              if any(b.lower() in nn for b in BLOQUEAR): return False
+              return True
 
+          def escolhe_grupo(extinf):
+              m = re.search(r'group-title="([^"]*)"', extinf)
+              grupos = m.group(1).split(";") if m else ["Undefined"]
+              for p in PRIORIDADE:
+                  if p in grupos: return NOMES.get(p, p)
+              return NOMES.get(grupos[0], grupos[0])
+
+          def aplica_grupo(extinf, g):
+              if 'group-title="' in extinf:
+                  return re.sub(r'group-title="[^"]*"', 'group-title="%s"' % g, extinf)
+              return extinf.replace("#EXTINF:-1", '#EXTINF:-1 group-title="%s"' % g, 1)
+
+          itens = parse(open("br.m3u", encoding="utf-8", errors="replace").read())
           vistos, final = set(), []
           for extinf, opts, url in itens:
-              if eh_br(extinf) and url not in vistos:
-                  vistos.add(url)
-                  final.append((grupo_pt(extinf), opts, url))
+              if not (eh_br(extinf) and passa(extinf)) or url in vistos:
+                  continue
+              nn = sem_acento(nome_canal(extinf))
+              g = escolhe_grupo(extinf)
+              nacional = any(k in nn for k in NACIONAIS)
+              ok_local = any(k in nn for k in LOCAIS_OK)
+              if g in GRUPOS_RESTRITOS:
+                  if nacional or ok_local:
+                      g = "TV Aberta"
+                  else:
+                      continue      # canal aberto/local que não é rede nacional nem local permitido
+              vistos.add(url)
+              final.append((g, aplica_grupo(extinf, g), opts, url))
+
+          extras = 0
+          for nome, url in EXTRAS:
+              if url.strip() and url.strip() not in vistos:
+                  vistos.add(url.strip()); extras += 1
+                  ext = '#EXTINF:-1 group-title="TV Aberta",%s' % nome
+                  final.append(("TV Aberta", ext, [], url.strip()))
 
           def chave(it):
-              g = re.search(r'group-title="([^"]*)"', it[0])
-              return ((g.group(1) if g else "").lower(), it[0].rsplit(",", 1)[-1].lower())
+              g = it[0]
+              pos = ORDEM.index(g) if g in ORDEM else len(ORDEM)
+              return (pos, g.lower(), sem_acento(nome_canal(it[1])))
           final.sort(key=chave)
 
           saida = ["#EXTM3U", "# Lista IPTV Brasil - PeixotoSilvastm"]
-          for extinf, opts, url in final:
+          for g, extinf, opts, url in final:
               saida += [extinf] + opts + [url]
           texto = "\n".join(saida) + "\n"
           for nome in ("playlist-final.m3u8", "brasil.m3u"):
               open(nome, "w", encoding="utf-8").write(texto)
-          print(len(final), "canais")
+
+          print(len(final), "canais (extras manuais:", extras, ")")
+          for g, n in Counter(x[0] for x in final).most_common():
+              print("  ", g, n)
           PY
 
       - name: Commit e push
