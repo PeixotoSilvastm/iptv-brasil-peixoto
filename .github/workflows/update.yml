@@ -30,6 +30,7 @@ jobs:
           Fontes:
             pool/streams.tsv    -> catálogo de streams (nome, url, país, categoria, headers...)
             monitor/state.tsv   -> estado de cada URL medido 2x/dia (alive/suspect/down/blocked/gone)
+            epg-br (vinnyoliveira) -> guia XMLTV; usado para preencher o tvg-id de cada canal
 
           Regras principais:
             - só entra URL com estado "alive" (e "suspect" apenas se já estava na playlist anterior,
@@ -37,6 +38,8 @@ jobs:
             - URLs de IP solto (restreams) só entram se estiverem estáveis (vivas em vários horários)
             - sem duplicatas: no máximo MAX_PER_CHANNEL URLs por canal (a melhor + 1 reserva)
             - se algo falhar (download ou lista pequena demais), a playlist anterior é mantida
+            - tvg-id: usa o id da fonte se ele existir no guia; senão casa pelo nome (ou por ALIASES);
+              se o guia não puder ser baixado, a playlist sai igual à de antes (só com o id da fonte)
           """
           import csv
           import datetime as dt
@@ -50,6 +53,9 @@ jobs:
 
           BASE = "https://raw.githubusercontent.com/Arshad-Kamal/Nuvio-KE-channels/main"
           OUT = os.environ.get("OUT_FILE", "playlist.m3u8")
+
+          # Guia (XMLTV). Use o MESMO link no Nuvio, em "Listas e guias por URL".
+          EPG_URL = os.environ.get("EPG_URL", "https://vinnyoliveira.github.io/epg-br/epg-rich.xml")
 
           MAX_PER_CHANNEL = 2        # melhor URL + 1 reserva
           MIN_CHANNELS = 60          # abaixo disso, considera falha e não sobrescreve
@@ -167,6 +173,69 @@ jobs:
               return {l.strip() for l in open(OUT, encoding="utf-8") if l.startswith("http")}
 
 
+          # ----------------------------------------------------------------- guia (EPG) / tvg-id
+          def epg_norm(s):
+              """Como norm(), mas o "+" vira "plus" (assim "SportyNet" e "SportyNet +" não colidem)."""
+              return norm(s.replace("+", " plus "))
+
+
+          # Nomes da playlist que o guia chama de outra coisa -> id do guia
+          ALIASES = {
+              "tvliberal": "GloboTvLiberalBelem.br",
+              "tvliberalbelem": "GloboTvLiberalBelem.br",
+              "tvcultura": "TVCultura.br",
+              "tvglobosp": "TVGloboSaoPaulo.br",
+              "tvgloborio": "TVGloboRiodeJaneiro.br",
+              "globorio": "TVGloboRiodeJaneiro.br",
+              "recordsp": "RecordTVPaulista.br",
+              "recordtvsp": "RecordTVPaulista.br",
+              "bandsp": "BandPaulista.br",
+              # nomes que vêm com sufixo/prefixo da fonte (chave = nome sem acentos/símbolos/espaços)
+              "bandeirantes": "Band.br",
+              "recordtv": "Record.br",
+              "sbtnacional": "SBTNacional.br",
+              "amclatinamericabrazil": "Amc.br",
+              "tntlatinamericabrazil": "Tnt.br",
+              "studiouniversallatinamericabrazil": "StudioUniversal.br",
+              "tcm10": "Tcm.br",
+              "moviespherebrasil": "Moviesphere.br",
+              "mytimemovienetworkbrazil": "MyTimeMovieNetwork.br",
+              "timesbrasilcnbc": "TimesBrasil.br",
+              "vejaplustv": "VEJAPlusTV.br",
+              "440nflchannel": "NflChannel.br",
+              "484redbulltv": "RedBullTv.br",
+              "redbulltvaustria": "RedBullTv.br",
+          }
+
+
+          def load_epg_ids():
+              """Lê o XMLTV e devolve (conjunto de ids, nome normalizado -> id). Vazio se falhar."""
+              import xml.etree.ElementTree as ET
+              ids, by_name = set(), {}
+              try:
+                  req = urllib.request.Request(EPG_URL, headers={"User-Agent": "iptv-br-updater"})
+                  with urllib.request.urlopen(req, timeout=300) as resp:
+                      for _, el in ET.iterparse(resp, events=("end",)):
+                          if el.tag == "channel":
+                              cid = el.get("id")
+                              if cid:
+                                  ids.add(cid)
+                                  for dn in el.findall("display-name"):
+                                      if dn.text:
+                                          by_name.setdefault(epg_norm(dn.text), cid)
+                              el.clear()
+                          elif el.tag == "programme":
+                              el.clear()
+              except Exception as e:  # noqa: BLE001
+                  print(f"::warning::Não consegui ler o EPG ({e}); usando só o id da fonte.")
+                  return set(), {}
+              for k, v in ALIASES.items():
+                  if v in ids:
+                      by_name[k] = v
+              print(f"EPG: {len(ids)} canais carregados.")
+              return ids, by_name
+
+
           def main():
               age = monitor_age_days()
               if age is not None and age > STALE_DAYS:
@@ -234,11 +303,22 @@ jobs:
                         file=sys.stderr)
                   return 1
 
-              lines = ["#EXTM3U"]
+              epg_ids, epg_by_name = load_epg_ids()
+              header = f'#EXTM3U url-tvg="{EPG_URL}"' if epg_ids else "#EXTM3U"
+              lines = [header]
+              missing = []
               for _, _, group, name, url, chan in entries:
-                  tvg = f' tvg-id="{chan}"' if chan else ""
+                  if epg_ids:
+                      tid = chan if chan in epg_ids else epg_by_name.get(epg_norm(name), "")
+                  else:
+                      tid = chan if chan and chan != "-" else ""
+                  if epg_ids and not tid:
+                      missing.append(name)
+                  tvg = f' tvg-id="{tid}"' if tid else ""
                   lines.append(f'#EXTINF:-1{tvg} tvg-name="{name}" group-title="{group}",{name}')
                   lines.append(url)
+              if missing:
+                  print(f"Sem tvg-id ({len(missing)}): {', '.join(sorted(set(missing)))}")
               new = "\n".join(lines) + "\n"
 
               if os.path.exists(OUT) and open(OUT, encoding="utf-8").read() == new:
