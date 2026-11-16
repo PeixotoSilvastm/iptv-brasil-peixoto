@@ -129,10 +129,14 @@ http://46.151.196.223:14326
 http://46.151.196.223:14326/
 #EXTINF:-1 tvg-id="Tnt.br" tvg-name="TNT Latin America Brazil" group-title="Filmes",TNT Latin America Brazil
 http://15.204.246.24:8080/TNTHD/index.m3u8
+#EXTINF:-1 tvg-id="RBATV.br" tvg-name="Band" group-title="Abertas",Band
+https://cdn.live.br1.jmvstream.com/w/LVW-15748/LVW15748_Yed7yzLuRC/chunklist.m3u8
 #EXTINF:-1 tvg-id="Band.br" tvg-name="Bandeirantes" group-title="Abertas",Bandeirantes
 https://ssai2-ads.api.leiniao.com/global-adinsertion-api/hls/live/v2/18bf0c9b77d443ebba97ff7e27381394/playlist.m3u8
 #EXTINF:-1 tvg-id="TVGloboSaoPaulo.br" tvg-name="Globo SP" group-title="Abertas",Globo SP
 http://hls1.sua.tv:80/live/globosphd/s.m3u8
+#EXTINF:-1 tvg-id="RBATV.br" tvg-name="RBATV" group-title="Abertas",RBATV
+https://cdn.live.br1.jmvstream.com/w/LVW-15748/LVW15748_Yed7yzLuRC/playlist.m3u8
 #EXTINF:-1 tvg-id="Record.br" tvg-name="Record" group-title="Abertas",Record
 https://cdn.live.br1.jmvstream.com/w/LVW-10842/LVW10842_513N26MDBL/chunklist.m3u8
 #EXTINF:-1 tvg-id="Record.br" tvg-name="RecordTV" group-title="Abertas",RecordTV
