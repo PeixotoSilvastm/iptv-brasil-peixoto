@@ -1,199 +1,234 @@
-name: Atualizar Playlist IPTV Brasil
+name: Atualizar playlist
 
 on:
   schedule:
-    - cron: '0 10 * * *'
-  workflow_dispatch: {}
+    - cron: "17 */6 * * *"   # a cada 6 horas
+  workflow_dispatch:          # permite rodar manualmente
 
 permissions:
   contents: write
 
 jobs:
-  atualiza:
+  update:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Baixa a playlist do Brasil
-        run: curl -fsSL https://iptv-org.github.io/iptv/countries/br.m3u -o br.m3u
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: Filtra, remove duplicados e monta a playlist
+      - name: Gerar playlist
         run: |
-          python3 - <<'PY'
-          import re, unicodedata
-          from collections import Counter
+          python3 - <<'PYEOF'
+          #!/usr/bin/env python3
+          """
+          Gera playlist.m3u8 (TV ao vivo do Brasil) a partir de Arshad-Kamal/Nuvio-KE-channels.
 
-          # ===== AJUSTES (mude aqui) =====
-          TIRAR_NOT_247   = True    # remove canais marcados [Not 24/7]
-          TIRAR_GEOBLOCK  = False   # remove canais marcados [Geo-blocked]
-          RESOLUCAO_MIN   = 360     # remove resolução menor. 0 = não filtra
-          BLOQUEAR        = ["tvmatic crafts", "tvmatic facebook", "tvmatic funny", "tvmatic tiktok",
-                             "petlovers", "tv+pet", "1001 noites", "tiktok radio", "gospel cartoon"]
+          Fontes:
+            pool/streams.tsv    -> catálogo de streams (nome, url, país, categoria, headers...)
+            monitor/state.tsv   -> estado de cada URL medido 2x/dia (alive/suspect/down/blocked/gone)
 
-          # Links que você testou e NÃO abriram. Bloqueia só O LINK, não o canal: se o iptv-org
-          # trocar por um link novo do mesmo canal, ele volta sozinho na próxima atualização.
-          NAO_ABRE_URL = [
-              "http://45.177.114.115/TV_BRASIL_2/index.m3u8",   # Canal Gov (720p)
-              "http://45.177.114.114/HISTORY/index.m3u8",   # History (Brazil) (720p)
-              "https://video09.logicahost.com.br/tvparaense/tvparaense/playlist.m3u",   # TV Paraense (720p)
-              "http://143.14.134.107/167/index.m3u8",   # Combate (720p)
-              "http://190.83.2.182:8090/ESPN3/index.m3u8",   # ESPN 3 (Brazil) (1080p)
-              "https://ogc-nsprt-tcl-roku-syndication.otteravision.com/ogc/nsprt/nsprt.m3u8",   # N Sports (1080p)
-              "http://195.178.110.110/sportv2/index.m3u8",   # SporTV 2 (1080p)
-              "http://195.178.110.110/sportv3/index.m3u8",   # SporTV 3 (1080p)
-              "http://cdn.tvmatic.net/fight.m3u8",   # TVMatic Fight (720p)
-              "https://cdn-5.nxplay.com.br/BAND_NEWS/index.m3u8",   # BandNews (1080p)
-              "https://cdn.live.br1.jmvstream.com/w/LVW-11668/ngrp:LVW11668_wiJpjbMrks_all/playlist.m3u8",   # BR8 TV
-              "http://170.82.202.31/GNT/index.m3u8",   # GNT (1080p)
-              "http://45.177.114.115/RECORD_NEWS/index.m3u8",   # Record News (720p)
-          ]
+          Regras principais:
+            - só entra URL com estado "alive" (e "suspect" apenas se já estava na playlist anterior,
+              para um tropeço isolado não derrubar o canal)
+            - URLs de IP solto (restreams) só entram se estiverem estáveis (vivas em vários horários)
+            - sem duplicatas: no máximo MAX_PER_CHANNEL URLs por canal (a melhor + 1 reserva)
+            - se algo falhar (download ou lista pequena demais), a playlist anterior é mantida
+          """
+          import csv
+          import io
+          import os
+          import re
+          import sys
+          import unicodedata
+          import urllib.request
 
-          # Cabeçalhos extras para canais que davam erro 403 (tentativa: simula um navegador).
-          HEADERS = {"band sports": "https://www.band.uol.com.br/"}
-          UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          BASE = "https://raw.githubusercontent.com/Arshad-Kamal/Nuvio-KE-channels/main"
+          OUT = os.environ.get("OUT_FILE", "playlist.m3u8")
 
-          # Nos grupos abaixo (onde ficam os canais abertos/locais), só entra:
-          #  - rede nacional (lista NACIONAIS) ou
-          #  - canal local permitido (lista LOCAIS_OK)
-          GRUPOS_RESTRITOS = ["TV Aberta", "Outros", "Entretenimento"]
-          NACIONAIS = ["rede globo", "globoplay", "band (", "record (", "sbt nacional", "redetv",
-                       "rede tv", "rede brasil", "tv brasil (", "canal uol", "amazon sat", "tv senado",
-                       "tv justica", "canal gov", "boas novas", "rede familia", "cancao nova",
-                       "sesc tv", "sony", "comedy central", "canal do boi", "tv ra tim bum", "canal libras"]
-          LOCAIS_OK = ["liberal", "tapajos",                               # Pará
-                       "recordtv rio", "rede cnt rio de janeiro",          # Rio (capital)
-                       "tv globo sao paulo", "recordtv sao paulo",         # São Paulo (capital)
-                       "tv cultura", "tv gazeta"]
+          MAX_PER_CHANNEL = 2        # melhor URL + 1 reserva
+          MIN_CHANNELS = 60          # abaixo disso, considera falha e não sobrescreve
+          MIN_SLOTS_IP_HOST = 4      # IP solto: precisa ter funcionado em >=4 dos 8 horários do monitor
+          KEEP_GROUPS = ["Esportes", "Notícias", "Filmes", "Abertas"]  # ordem na lista
 
-          # Canais manuais (não existem no iptv-org). Cole o link .m3u8 entre as aspas.
-          # Os que ficarem com link vazio ("") são ignorados.
-          EXTRAS = [("TV Liberal (Belem)", "", "TV Aberta"),
-                    ("TV Tapajos (Santarem)", "", "TV Aberta"),
-                    ("BandNews (manual)", "https://45.162.64.114/BAND_NEWS/index.m3u8", "Noticias")]
+          csv.field_size_limit(10**8)
 
-          # Locais de outros estados (valem para qualquer grupo): o canal sai se o nome tiver a palavra
-          LOCAIS_FORA = ["cuiaba", "mutum", "rondonopolis", "pantanal", "goias", "ufg", "brasilia",
-                         "bahia", "salvador", "itapoan", "metropole", "ceara", "piaui", "padre cicero",
-                         "meio norte", "arapuan", "natal", "litoral rn", "maceio", "tvcom", "macapa",
-                         "curitiba", "parana", "brusque", "catarinense", "unisul", "porto alegre",
-                         "passo fundo", "vicosa", "ufop", "sul de minas", "rede minas",
-                         "cachoeiro", "sao mateus", "guarapari", "a critica", "encontro das aguas",
-                         "santa cecilia", "aratu"]
-          LOCAIS_FORA_PALAVRA = ["rs"]   # só como palavra inteira
+          # ----------------------------------------------------------------- classificação
+          def norm(s):
+              s = unicodedata.normalize("NFKD", s.lower())
+              s = "".join(ch for ch in s if not unicodedata.combining(ch))
+              s = re.sub(r"\(.*?\)|\[.*?\]", " ", s)
+              s = re.sub(r"\b(fhd|hd|sd|4k|1080p|720p|480p|h265|hevc|link \d)\b", " ", s)
+              s = re.sub(r"[^a-z0-9áàâãéêíóôõúç ]", " ", s)
+              return re.sub(r"\s+", "", s)
 
-          ORDEM = ["Noticias", "Esportes", "TV Aberta", "Filmes", "Series", "Infantil",
-                   "Documentarios", "Entretenimento", "Musica", "Cultura", "Educacao",
-                   "Camaras", "Religiosos"]
-          PRIORIDADE = ["News", "Sports", "Movies", "Series", "Kids", "Documentary", "General",
-                        "Entertainment", "Music", "Culture", "Education", "Legislative", "Religious"]
-          NOMES = {"News": "Noticias", "Sports": "Esportes", "General": "TV Aberta",
-                   "Entertainment": "Entretenimento", "Movies": "Filmes", "Series": "Series",
-                   "Kids": "Infantil", "Religious": "Religiosos", "Education": "Educacao",
-                   "Music": "Musica", "Documentary": "Documentarios", "Legislative": "Camaras",
-                   "Culture": "Cultura", "Animation": "Infantil", "Comedy": "Entretenimento",
-                   "Public": "TV Aberta", "Business": "Noticias", "Classic": "Entretenimento",
-                   "Undefined": "Outros"}
-          # ================================
 
-          def sem_acento(t):
-              return unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode().lower()
+          SPORTS = re.compile(r"sportv|\bespn\b|caz[eé]tv|caze tv|band ?sports|combate|\btnt sports\b|fox sports|"
+                              r"\bnsports\b|\bracer\b|\bnfl\b|red bull|sportynet|mavtv|\bufc\b", re.I)
+          SPORTS_GLOBAL_ONLY_BR = re.compile(r"\bespn\b|fox sports|tnt sports", re.I)
+          NEWS = re.compile(r"globonews|globo news|cnn brasil|jovem pan news|band ?news|record news|"
+                            r"sbt news|times brasil|veja\+|bm&c|^tv c[aâ]mara$|^tv senado$|^tv justi[cç]a$|^canal gov$", re.I)
+          MOVIES = re.compile(r"telecine|\bhbo\b|sony movies|studio universal|\baxn\b|\btcm\b|cinemax|"
+                              r"moviesphere|mytime movie|cine sony|megapix|canal brasil|\bamc\b|"
+                              r"sony channel|cine premiere|cindie|\btnt\b", re.I)
+          OPEN = re.compile(r"^(tv )?globo( sp| rio)?$|^globo (sp|rio)|^sbt( nacional| sp| rio)?$|"
+                            r"^record( ?tv)?( sp| rio)?$|^band(eirantes)?$|^rede ?tv!?( mais)?$|"
+                            r"^tv brasil$|^tv cultura$|^tv gazeta$|tv liberal|tv tapaj|tv marajoara|"
+                            r"rbatv|tv a cr[ií]tica", re.I)
 
-          def parse(texto):
-              linhas, itens, i = texto.splitlines(), [], 0
-              while i < len(linhas):
-                  if linhas[i].startswith("#EXTINF"):
-                      extinf, opts, j = linhas[i], [], i + 1
-                      while j < len(linhas) and linhas[j].startswith("#") and not linhas[j].startswith("#EXTINF"):
-                          opts.append(linhas[j]); j += 1
-                      if j < len(linhas) and linhas[j].strip() and not linhas[j].startswith("#"):
-                          itens.append((extinf, opts, linhas[j].strip())); j += 1
-                      i = j
-                  else:
-                      i += 1
-              return itens
+          # Fora de escopo: regionais que você disse que não quer, canais estrangeiros homônimos etc.
+          EXCLUDE = re.compile(r"interior|bras[ií]lia|mutum|oeste|sinop|angola|vila real|amplitude|juina|"
+                               r"paran[aá]|goi[aá]s|fernsehen|bayerisch|\bbr alpha\b|bandung|bandamax|stara|"
+                               r"spacetoon|space toon|space live|space & beyond|star trek|khushboo|sony one|"
+                               r"latin america(?! brazil)|andes|poland|polska|cee\b|czech|asia|taiwan|adria|"
+                               r"hungary|romania|bulgaria|central europe|mexico|argentin|chile|colombia|"
+                               r"jo[aã]o pessoa|mogi|\blins\b|rs premiere|\barg\b|premium hd|espn ?5|\bsbtv\b|sbt tv|\[paid\]|nova mutum|galega|rio preto|colatina|sao mateus|"
+                               r"s[aã]o mateus|maceió|maceio|nbn|natal|plan\b|max rio|tv max", re.I)
 
-          def nome_canal(extinf):
-              return extinf.rsplit(",", 1)[-1]
+          NON_BR_COUNTRY = re.compile(r"^(US|AR|CL|CO|MX|DE|PL|CZ|HU|RO|BG|SG|IN|FR|GB|ES|IT|PT|PY|VE|TH|HR|AT|CH|CA|RU|TR|ID)$")
 
-          def eh_br(extinf):
-              m = re.search(r'tvg-id="[^"]*\.([a-z]{2,3})(?:@[^"]*)?"', extinf)
-              return bool(m) and m.group(1) == "br"
 
-          def passa(extinf):
-              n = nome_canal(extinf); nn = sem_acento(n)
-              if any(k in nn for k in LOCAIS_OK): return True
-              if any(k in nn for k in LOCAIS_FORA): return False
-              if any(re.search(r"\b%s\b" % w, nn) for w in LOCAIS_FORA_PALAVRA): return False
-              if TIRAR_NOT_247 and "[Not 24/7]" in n: return False
-              if TIRAR_GEOBLOCK and "[Geo-blocked]" in n: return False
-              if RESOLUCAO_MIN:
-                  r = re.search(r'\((\d{3,4})[pi]\)', n)
-                  if r and int(r.group(1)) < RESOLUCAO_MIN: return False
-              if any(b.lower() in nn for b in BLOQUEAR): return False
-              return True
+          def is_brazil(r):
+              c = r["country"].strip().upper()
+              name = r["name"]
+              if r["channel"].endswith(".br") or c == "BR":
+                  return True
+              if re.search(r"bras[il]l?|brazil|brasil", name, re.I):
+                  return True
+              if c in ("", "-") and (NEWS.search(name) or OPEN.search(name)
+                                     or (SPORTS.search(name) and not SPORTS_GLOBAL_ONLY_BR.search(name))):
+                  return True
+              return False
 
-          def escolhe_grupo(extinf):
-              m = re.search(r'group-title="([^"]*)"', extinf)
-              grupos = m.group(1).split(";") if m else ["Undefined"]
-              for p in PRIORIDADE:
-                  if p in grupos: return NOMES.get(p, p)
-              return NOMES.get(grupos[0], grupos[0])
 
-          def aplica_grupo(extinf, g):
-              if 'group-title="' in extinf:
-                  return re.sub(r'group-title="[^"]*"', 'group-title="%s"' % g, extinf)
-              return extinf.replace("#EXTINF:-1", '#EXTINF:-1 group-title="%s"' % g, 1)
+          def classify(name):
+              n = name.strip()
+              if NEWS.search(n):
+                  return "Notícias"
+              if SPORTS.search(n):
+                  return "Esportes"
+              if OPEN.search(n):
+                  return "Abertas"
+              if MOVIES.search(n):
+                  return "Filmes"
+              return None
 
-          itens = parse(open("br.m3u", encoding="utf-8", errors="replace").read())
-          vistos, final = set(), []
-          for extinf, opts, url in itens:
-              if not (eh_br(extinf) and passa(extinf)) or url in vistos or url in NAO_ABRE_URL:
-                  continue
-              nn = sem_acento(nome_canal(extinf))
-              g = escolhe_grupo(extinf)
-              nacional = any(k in nn for k in NACIONAIS)
-              ok_local = any(k in nn for k in LOCAIS_OK)
-              if g in GRUPOS_RESTRITOS:
-                  if nacional or ok_local:
-                      g = "TV Aberta"
-                  else:
-                      continue      # canal aberto/local que não é rede nacional nem local permitido
-              vistos.add(url)
-              for k, ref in HEADERS.items():
-                  if k in nn and not any("http-user-agent" in o for o in opts):
-                      opts = opts + ["#EXTVLCOPT:http-user-agent=" + UA, "#EXTVLCOPT:http-referrer=" + ref]
-                      extinf = extinf.replace('group-title=', 'http-user-agent="%s" http-referrer="%s" group-title=' % (UA, ref), 1)
-              final.append((g, aplica_grupo(extinf, g), opts, url))
 
-          extras = 0
-          for nome, url, grupo in EXTRAS:
-              if url.strip() and url.strip() not in vistos:
-                  vistos.add(url.strip()); extras += 1
-                  ext = '#EXTINF:-1 group-title="%s",%s' % (grupo, nome)
-                  final.append((grupo, ext, [], url.strip()))
+          # ----------------------------------------------------------------- qualidade da fonte
+          IP_HOST = re.compile(r"^https?://\d{1,3}(\.\d{1,3}){3}(:\d+)?(/|$)")
+          GOOD_HOSTS = ("ebc.com.br", "cloudfront.net", "amagi", "jmvstream", "wurl", "uol.com.br",
+                        "camara.gov", "senado", "otteravision", "akamaized", "jmp2.uk", "roku.com",
+                        "dai.google.com", "tubi.io", "frequency.stream")
 
-          def chave(it):
-              g = it[0]
-              pos = ORDEM.index(g) if g in ORDEM else len(ORDEM)
-              return (pos, g.lower(), sem_acento(nome_canal(it[1])))
-          final.sort(key=chave)
 
-          saida = ["#EXTM3U", "# Lista IPTV Brasil - PeixotoSilvastm"]
-          for g, extinf, opts, url in final:
-              saida += [extinf] + opts + [url]
-          texto = "\n".join(saida) + "\n"
-          for nome in ("playlist-final.m3u8", "brasil.m3u"):
-              open(nome, "w", encoding="utf-8").write(texto)
+          def source_rank(url):
+              """menor = melhor"""
+              if any(h in url for h in GOOD_HOSTS):
+                  return 0
+              if IP_HOST.match(url):
+                  return 2
+              return 1
 
-          print(len(final), "canais (extras manuais:", extras, ")")
-          for g, n in Counter(x[0] for x in final).most_common():
-              print("  ", g, n)
-          PY
 
-      - name: Commit e push
+          def fetch(path):
+              req = urllib.request.Request(f"{BASE}/{path}", headers={"User-Agent": "iptv-br-updater"})
+              with urllib.request.urlopen(req, timeout=120) as resp:
+                  return resp.read().decode("utf-8", "replace")
+
+
+          def previous_urls():
+              if not os.path.exists(OUT):
+                  return set()
+              return {l.strip() for l in open(OUT, encoding="utf-8") if l.startswith("http")}
+
+
+          def main():
+              try:
+                  pool_txt = fetch("pool/streams.tsv")
+                  state_txt = fetch("monitor/state.tsv")
+              except Exception as e:  # noqa: BLE001
+                  print(f"Falha ao baixar fontes ({e}); playlist anterior mantida.", file=sys.stderr)
+                  return 1
+
+              state = {r["url"]: r for r in csv.DictReader(io.StringIO(state_txt), delimiter="\t")}
+              pool = csv.DictReader(io.StringIO(pool_txt), delimiter="\t", quoting=csv.QUOTE_NONE)
+              prev = previous_urls()
+
+              cands = {}  # chave do canal -> lista de (rank, url, nome, grupo, tvg_id)
+              for r in pool:
+                  url = r["url"]
+                  st = state.get(url)
+                  if not st:
+                      continue
+                  s = st["state"]
+                  if s == "suspect" and url in prev:
+                      pass  # tolerância a falha isolada
+                  elif s != "alive":
+                      continue
+                  if r["headers"] not in ("-", ""):
+                      continue  # precisa de Referer/User-Agent: o player pode não repassar
+                  if "|" in url or ";" in url:
+                      continue
+                  if not is_brazil(r):
+                      continue
+                  name = r["name"].strip()
+                  if EXCLUDE.search(name):
+                      continue
+                  group = classify(name)
+                  if group not in KEEP_GROUPS:
+                      continue
+                  # IP solto só se estável ao longo do dia
+                  if IP_HOST.match(url) and st.get("slots", "").count("1") < MIN_SLOTS_IP_HOST:
+                      continue
+                  key = (group, norm(name))
+                  cands.setdefault(key, []).append((source_rank(url), url, name, r["channel"]))
+
+              entries = []
+              for (group, _), items in cands.items():
+                  items.sort(key=lambda x: (x[0], x[1] not in prev))  # prefere fonte boa; empate -> já usada
+                  seen = set()
+                  for rank, url, name, chan in items:
+                      if url in seen:
+                          continue
+                      seen.add(url)
+                      if len(seen) > MAX_PER_CHANNEL:
+                          break
+                      entries.append((KEEP_GROUPS.index(group), name.lower(), group, name, url, chan))
+
+              entries.sort()
+              if len(entries) < MIN_CHANNELS:
+                  print(f"Só {len(entries)} canais (mínimo {MIN_CHANNELS}); playlist anterior mantida.",
+                        file=sys.stderr)
+                  return 1
+
+              lines = ["#EXTM3U"]
+              for _, _, group, name, url, chan in entries:
+                  tvg = f' tvg-id="{chan}"' if chan else ""
+                  lines.append(f'#EXTINF:-1{tvg} tvg-name="{name}" group-title="{group}",{name}')
+                  lines.append(url)
+              new = "\n".join(lines) + "\n"
+
+              if os.path.exists(OUT) and open(OUT, encoding="utf-8").read() == new:
+                  print("Sem mudanças.")
+                  return 0
+              with open(OUT, "w", encoding="utf-8") as f:
+                  f.write(new)
+              by = {}
+              for e in entries:
+                  by[e[2]] = by.get(e[2], 0) + 1
+              print(f"{len(entries)} entradas escritas em {OUT}: {by}")
+              return 0
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PYEOF
+
+      - name: Commit se mudou
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add playlist-final.m3u8 brasil.m3u
-          git diff --staged --quiet || git commit -m "chore: atualiza playlist"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add playlist.m3u8
+          git diff --cached --quiet || git commit -m "Atualiza playlist"
           git push
