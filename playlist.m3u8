@@ -119,6 +119,8 @@ https://appletree-mytime-samsungbrazil.amagi.tv/playlist.m3u8
 http://170.83.16.50/SONY_CHANNEL/index.m3u8
 #EXTINF:-1 tvg-id="SonyMovies.br" tvg-name="Sony Movies" group-title="Filmes",Sony Movies
 http://170.83.16.50/SONY_MOVIES/index.m3u8
+#EXTINF:-1 tvg-id="StudioUniversal.br" tvg-name="Studio Universal Latin America Brazil" group-title="Filmes",Studio Universal Latin America Brazil
+http://187.102.210.46/universo/index.m3u8
 #EXTINF:-1 tvg-id="Tcm.br" tvg-name="TCM 10 HD" group-title="Filmes",TCM 10 HD
 https://live.tcm10.com.br/tcm10hd/stream.m3u8
 #EXTINF:-1 tvg-id="TelecineAction.br" tvg-name="Telecine Action" group-title="Filmes",Telecine Action
