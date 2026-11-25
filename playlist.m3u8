@@ -82,13 +82,13 @@ https://ssai2-ads.api.leiniao.com/global-adinsertion-api/hls/live/v2/21fdb6dd749
 #EXTINF:-1 tvg-id="TimesBrasil.br" tvg-name="Times Brasil | CNBC" group-title="Notícias",Times Brasil | CNBC
 https://jmp2.uk/plu-679a973a97782f0008ff4bb6.m3u8
 #EXTINF:-1 tvg-id="TVCamara.br" tvg-name="TV Camara" group-title="Notícias",TV Camara
-http://170.83.49.66:8083/TVCAMARAHD/index.m3u8
+http://186.219.52.187/tv_camara/index.m3u8
 #EXTINF:-1 tvg-id="TVCamara.br" tvg-name="TV Câmara" group-title="Notícias",TV Câmara
 https://stream3.camara.gov.br/tv1/manifest.m3u8
 #EXTINF:-1 tvg-id="TVJustica.br" tvg-name="TV Justica" group-title="Notícias",TV Justica
 http://170.83.16.50/TV_JUSTICA/index.m3u8
 #EXTINF:-1 tvg-id="TVJustica.br" tvg-name="TV Justica" group-title="Notícias",TV Justica
-http://170.83.49.66:8083/TVJUSTICAHD/index.m3u8
+http://186.219.52.187/tv_justica/index.m3u8
 #EXTINF:-1 tvg-id="TVSenado.br" tvg-name="TV Senado" group-title="Notícias",TV Senado
 http://170.83.16.50/TV_SENADO/index.m3u8
 #EXTINF:-1 tvg-id="TVSenado.br" tvg-name="TV Senado" group-title="Notícias",TV Senado
@@ -99,8 +99,6 @@ https://ssai2-ads.api.leiniao.com/global-adinsertion-api/hls/live/v2/e0df8853124
 https://gpa-vja-samsungtvplus-br.otteravision.com/gpa/vja/vja.m3u8
 #EXTINF:-1 tvg-id="VEJAPlusTV.br" tvg-name="VEJA+ TV" group-title="Notícias",VEJA+ TV
 https://gpa-vja.otteravision.com/gpa/vja/vja.m3u8
-#EXTINF:-1 tvg-id="Amc.br" tvg-name="AMC Latin America Brazil" group-title="Filmes",AMC Latin America Brazil
-http://170.83.49.66:8083/AMCHD/index.m3u8
 #EXTINF:-1 tvg-id="AXN.br" tvg-name="AXN" group-title="Filmes",AXN
 http://170.83.16.50/AXN/index.m3u8
 #EXTINF:-1 tvg-id="AXN.br" tvg-name="AXN" group-title="Filmes",AXN
@@ -154,7 +152,7 @@ https://cdn.live.br1.jmvstream.com/w/LVW-10801/LVW10801_Xvg4R0u57n/chunklist.m3u
 #EXTINF:-1 tvg-id="TVACritica.br" tvg-name="TV A Critica" group-title="Abertas",TV A Critica
 https://cdn.live.br1.jmvstream.com/w/LVW-20715/LVW20715_50E3x2MCm2/playlist.m3u8
 #EXTINF:-1 tvg-id="TVBrasil.br" tvg-name="TV Brasil" group-title="Abertas",TV Brasil
-http://170.83.49.66:8083/TVBRASILHD/index.m3u8
+http://186.219.52.187/tv_brasil/index.m3u8
 #EXTINF:-1 tvg-id="TVBrasil.br" tvg-name="TV Brasil" group-title="Abertas",TV Brasil
 https://tvbrasil-stream.ebc.com.br/index.m3u8
 #EXTINF:-1 tvg-id="TVCultura.br" tvg-name="TV Cultura" group-title="Abertas",TV Cultura
