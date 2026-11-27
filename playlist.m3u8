@@ -5,8 +5,6 @@ https://d6f8f5cf.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/TEdfTk
 https://0b73ace69ebb45eaa249bb87837cb958.mediatailor.us-west-2.amazonaws.com/v1/master/ba62fe743df0fe93366eba3a257d792884136c7f/LINEAR-644-WORBUSENFAST-LG_US/644/hls/master/playlist.m3u8
 #EXTINF:-1 tvg-id="BandSports.br" tvg-name="Band Sports" group-title="Esportes",Band Sports
 http://170.83.16.50/BAND_SPORTS/index.m3u8
-#EXTINF:-1 tvg-id="BandSports.br" tvg-name="Band Sports" group-title="Esportes",Band Sports
-http://170.83.49.66:8083/BANDSPORTSHD/index.m3u8
 #EXTINF:-1 tvg-id="CazeTV.br" tvg-name="Caze TV (Amagi TCL)" group-title="Esportes",Caze TV (Amagi TCL)
 https://amg01391-amg01391c10-tcl-br-9630.playouts.now.amagi.tv/1080p-cc/index.m3u8
 #EXTINF:-1 tvg-id="CazeTV.br" tvg-name="CazéTV" group-title="Esportes",CazéTV
@@ -101,8 +99,6 @@ https://gpa-vja-samsungtvplus-br.otteravision.com/gpa/vja/vja.m3u8
 https://gpa-vja.otteravision.com/gpa/vja/vja.m3u8
 #EXTINF:-1 tvg-id="AXN.br" tvg-name="AXN" group-title="Filmes",AXN
 http://170.83.16.50/AXN/index.m3u8
-#EXTINF:-1 tvg-id="AXN.br" tvg-name="AXN" group-title="Filmes",AXN
-http://170.83.49.66:8083/AXNHD/index.m3u8
 #EXTINF:-1 tvg-name="CINDIE TV" group-title="Filmes",CINDIE TV
 https://cc-hqw8u5r1nshjc.akamaized.net/scheduler/scheduleMaster/352.m3u8
 #EXTINF:-1 tvg-id="Moviesphere.br" tvg-name="Moviesphere Brasil" group-title="Filmes",Moviesphere Brasil
